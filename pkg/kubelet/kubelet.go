@@ -450,12 +450,36 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		clock:            clock.RealClock{},
 		outOfDiskTransitionFrequency:            kubeCfg.OutOfDiskTransitionFrequency.Duration,
 		enableControllerAttachDetach:            kubeCfg.EnableControllerAttachDetach,
-		iptClient:                               utilipt.New(utilexec.New(), utildbus.New(), utilipt.ProtocolIpv4),
 		makeIPTablesUtilChains:                  kubeCfg.MakeIPTablesUtilChains,
 		iptablesMasqueradeBit:                   int(kubeCfg.IPTablesMasqueradeBit),
 		iptablesDropBit:                         int(kubeCfg.IPTablesDropBit),
 		experimentalHostUserNamespaceDefaulting: utilfeature.DefaultFeatureGate.Enabled(features.ExperimentalHostUserNamespaceDefaultingGate),
 	}
+
+	var protocol utilipt.Protocol
+	// Use the Kubelet NodeIP address if present to determine iptables protocol version.
+	if klet.nodeIP != nil {
+		switch {
+		case klet.nodeIP.To4() != nil:
+			protocol = utilipt.ProtocolIpv4
+		case klet.nodeIP.To16() != nil:
+			protocol = utilipt.ProtocolIpv6
+		}
+	} else {
+		// Otherwsie use the GetHostIP method to determine iptables protocol version.
+		addr, err := klet.GetHostIP()
+		if err != nil {
+			switch {
+			case addr.To4() != nil:
+				protocol = utilipt.ProtocolIpv4
+			case addr.To16() != nil:
+				protocol = utilipt.ProtocolIpv6
+			}
+		}
+		return nil, fmt.Errorf("Unable to determine iptables protocol version: %s", err)
+	}
+	klet.iptClient = utilipt.New(utilexec.New(), utildbus.New(), protocol)
+	//iptClient := klet.iptClient
 
 	secretManager := secret.NewCachingSecretManager(
 		kubeDeps.KubeClient, secret.GetObjectTTLFromNodeFunc(klet.GetNode))
