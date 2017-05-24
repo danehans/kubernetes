@@ -153,6 +153,25 @@ func TestProxyServerWithCleanupAndExit(t *testing.T) {
 	assert.NotNil(t, proxyserver.IptInterface)
 }
 
+// This test verifies that Proxy Server does not crash when CleanupAndExit is true.
+func TestProxyv6ServerWithCleanupAndExit(t *testing.T) {
+	options, err := NewOptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	options.config = &componentconfig.KubeProxyConfiguration{
+		BindAddress: "2001:db8::68",
+	}
+	options.CleanupAndExit = true
+
+	proxyserver, err := NewProxyServer(options.config, options.CleanupAndExit, options.scheme, options.master)
+
+	assert.Nil(t, err)
+	assert.NotNil(t, proxyserver)
+	assert.NotNil(t, proxyserver.IptInterface)
+}
+
 func TestGetConntrackMax(t *testing.T) {
 	ncores := runtime.NumCPU()
 	testCases := []struct {

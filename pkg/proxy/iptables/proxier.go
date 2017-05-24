@@ -133,6 +133,7 @@ func (lkct LinuxKernelCompatTester) IsCompatible() error {
 
 const sysctlRouteLocalnet = "net/ipv4/conf/all/route_localnet"
 const sysctlBridgeCallIPTables = "net/bridge/bridge-nf-call-iptables"
+const sysctlBridgeCallIP6Tables = "net/bridge/bridge-nf-call-ip6tables"
 
 // internal struct for string service information
 type serviceInfo struct {
@@ -420,7 +421,13 @@ func NewProxier(ipt utiliptables.Interface,
 	// Proxy needs br_netfilter and bridge-nf-call-iptables=1 when containers
 	// are connected to a Linux bridge (but not SDN bridges).  Until most
 	// plugins handle this, log when config is missing
-	if val, err := sysctl.GetSysctl(sysctlBridgeCallIPTables); err == nil && val != 1 {
+	var iptVer string
+	if ipt.IsIpv6() {
+		iptVer = sysctlBridgeCallIP6Tables
+	} else {
+		iptVer = sysctlBridgeCallIPTables
+	}
+	if val, err := sysctl.GetSysctl(iptVer); err == nil && val != 1 {
 		glog.Infof("missing br-netfilter module or unset sysctl br-nf-call-iptables; proxy may not work as intended")
 	}
 
