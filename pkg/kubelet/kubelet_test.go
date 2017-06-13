@@ -82,6 +82,9 @@ const (
 	testKubeletHostname = "127.0.0.1"
 	testKubeletHostIP   = "127.0.0.1"
 
+	testKubeletHostnameIPv6 = "::1"
+	testKubeletHostIPv6     = "::1"
+
 	// TODO(harry) any global place for these two?
 	// Reasonable size range of all container images. 90%ile of images on dockerhub drops into this range.
 	minImgSize int64 = 23 * 1024 * 1024
@@ -152,12 +155,16 @@ func newTestKubeletWithImageList(
 	fakeRecorder := &record.FakeRecorder{}
 	fakeKubeClient := &fake.Clientset{}
 	kubelet := &Kubelet{}
+	kubeletV6 := &Kubelet{}
+	kubelets := []*Kubelet{kubelet, kubeletV6}
 	kubelet.recorder = fakeRecorder
 	kubelet.kubeClient = fakeKubeClient
 	kubelet.os = &containertest.FakeOS{}
 
 	kubelet.hostname = testKubeletHostname
 	kubelet.nodeName = types.NodeName(testKubeletHostname)
+	kubeletV6.hostname = testKubeletHostnameIPv6
+	kubeletV6.nodeName = types.NodeName(testKubeletHostnameIPv6)
 	kubelet.runtimeState = newRuntimeState(maxWaitForContainerRuntime)
 	kubelet.runtimeState.setNetworkState(nil)
 	kubelet.networkPlugin, _ = network.InitNetworkPlugin([]network.NetworkPlugin{}, "", nettest.NewFakeHost(nil), componentconfig.HairpinNone, "", 1440)
@@ -191,6 +198,27 @@ func newTestKubeletWithImageList(
 						{
 							Type:    v1.NodeInternalIP,
 							Address: testKubeletHostIP,
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: string(kubeletV6.nodeName),
+				},
+				Status: v1.NodeStatus{
+					Conditions: []v1.NodeCondition{
+						{
+							Type:    v1.NodeReady,
+							Status:  v1.ConditionTrue,
+							Reason:  "Ready",
+							Message: "Node ready",
+						},
+					},
+					Addresses: []v1.NodeAddress{
+						{
+							Type:    v1.NodeInternalIP,
+							Address: testKubeletHostIPv6,
 						},
 					},
 				},
@@ -239,16 +267,28 @@ func newTestKubeletWithImageList(
 		UID:       types.UID(testKubeletHostname),
 		Namespace: "",
 	}
+	fakeV6NodeRef := &clientv1.ObjectReference{
+		Kind:      "Node",
+		Name:      testKubeletHostnameIPv6,
+		UID:       types.UID(testKubeletHostnameIPv6),
+		Namespace: "",
+	}
 	fakeImageGCPolicy := images.ImageGCPolicy{
 		HighThresholdPercent: 90,
 		LowThresholdPercent:  80,
 	}
 	imageGCManager, err := images.NewImageGCManager(fakeRuntime, mockCadvisor, fakeRecorder, fakeNodeRef, fakeImageGCPolicy)
 	assert.NoError(t, err)
-	kubelet.imageManager = &fakeImageGCManager{
-		fakeImageService: fakeRuntime,
-		ImageGCManager:   imageGCManager,
+	imageV6GCManager, err := images.NewImageGCManager(fakeRuntime, mockCadvisor, fakeRecorder, fakeV6NodeRef, fakeImageGCPolicy)
+	assert.NoError(t, err)
+	imgGCMgrs := []images.ImageGCManager{imageGCManager, imageV6GCManager}
+	for _, gcMgr := range imgGCMgrs {
+		kubelet.imageManager = &fakeImageGCManager{
+			fakeImageService: fakeRuntime,
+			ImageGCManager:   gcMgr,
+		}
 	}
+
 	fakeClock := clock.NewFakeClock(time.Now())
 	kubelet.backOff = flowcontrol.NewBackOff(time.Second, time.Minute)
 	kubelet.backOff.Clock = fakeClock
@@ -263,17 +303,31 @@ func newTestKubeletWithImageList(
 	// TODO: Factor out "StatsProvider" from Kubelet so we don't have a cyclic dependency
 	volumeStatsAggPeriod := time.Second * 10
 	kubelet.resourceAnalyzer = stats.NewResourceAnalyzer(kubelet, volumeStatsAggPeriod, kubelet.containerRuntime)
-	nodeRef := &clientv1.ObjectReference{
+	nodeRefV4 := &clientv1.ObjectReference{
 		Kind:      "Node",
-		Name:      string(kubelet.nodeName),
-		UID:       types.UID(kubelet.nodeName),
+		Name:      string(types.NodeName(testKubeletHostname)),
+		UID:       types.UID(types.NodeName(testKubeletHostname)),
 		Namespace: "",
 	}
-	// setup eviction manager
-	evictionManager, evictionAdmitHandler := eviction.NewManager(kubelet.resourceAnalyzer, eviction.Config{}, killPodNow(kubelet.podWorkers, fakeRecorder), kubelet.imageManager, kubelet.containerGC, fakeRecorder, nodeRef, kubelet.clock)
+	nodeRefV6 := &clientv1.ObjectReference{
+		Kind:      "Node",
+		Name:      string(types.NodeName(testKubeletHostnameIPv6)),
+		UID:       types.UID(types.NodeName(testKubeletHostnameIPv6)),
+		Namespace: "",
+	}
+	nodeRef := []*clientv1.ObjectReference{nodeRefV4, nodeRefV6}
 
-	kubelet.evictionManager = evictionManager
-	kubelet.admitHandlers.AddPodAdmitHandler(evictionAdmitHandler)
+	// setup eviction manager
+	evictionManagerV4, evictionAdmitHandlerV4 := eviction.NewManager(kubelet.resourceAnalyzer, eviction.Config{}, killPodNow(kubelet.podWorkers, fakeRecorder), kubelet.imageManager, kubelet.containerGC, fakeRecorder, nodeRef[0], kubelet.clock)
+	evictionManagerV6, evictionAdmitHandlerV6 := eviction.NewManager(kubelet.resourceAnalyzer, eviction.Config{}, killPodNow(kubelet.podWorkers, fakeRecorder), kubelet.imageManager, kubelet.containerGC, fakeRecorder, nodeRef[1], kubelet.clock)
+	evictionManagers := []eviction.Manager{evictionManagerV4, evictionManagerV6}
+	for _, evictionManager := range evictionManagers {
+		kubelet.evictionManager = evictionManager
+	}
+	evictionAdmitHandlers := []lifecycle.PodAdmitHandler{evictionAdmitHandlerV4, evictionAdmitHandlerV6}
+	for _, evictionAdmitHandler := range evictionAdmitHandlers {
+		kubelet.admitHandlers.AddPodAdmitHandler(evictionAdmitHandler)
+	}
 	// Add this as cleanup predicate pod admitter
 	kubelet.admitHandlers.AddPodAdmitHandler(lifecycle.NewPredicateAdmitHandler(kubelet.getNodeAnyWay, lifecycle.NewAdmissionFailureHandlerStub()))
 
@@ -283,20 +337,22 @@ func newTestKubeletWithImageList(
 	require.NoError(t, err, "Failed to initialize VolumePluginMgr")
 
 	kubelet.mounter = &mount.FakeMounter{}
-	kubelet.volumeManager, err = kubeletvolume.NewVolumeManager(
-		controllerAttachDetachEnabled,
-		kubelet.nodeName,
-		kubelet.podManager,
-		kubelet.statusManager,
-		fakeKubeClient,
-		kubelet.volumePluginMgr,
-		fakeRuntime,
-		kubelet.mounter,
-		kubelet.getPodsDir(),
-		kubelet.recorder,
-		false, /* experimentalCheckNodeCapabilitiesBeforeMount*/
-		false /* keepTerminatedPodVolumes */)
-	require.NoError(t, err, "Failed to initialize volume manager")
+	for _, kl := range kubelets {
+		kl.volumeManager, err = kubeletvolume.NewVolumeManager(
+			controllerAttachDetachEnabled,
+			kl.nodeName,
+			kl.podManager,
+			kl.statusManager,
+			fakeKubeClient,
+			kl.volumePluginMgr,
+			fakeRuntime,
+			kl.mounter,
+			kl.getPodsDir(),
+			kl.recorder,
+			false, /* experimentalCheckNodeCapabilitiesBeforeMount*/
+			false /* keepTerminatedPodVolumes */)
+		require.NoError(t, err, "Failed to initialize volume manager")
+	}
 
 	// enable active deadline handler
 	activeDeadlineHandler, err := newActiveDeadlineHandler(kubelet.statusManager, kubelet.recorder, kubelet.clock)
