@@ -52,6 +52,11 @@ func TestGetLoadBalancerSourceRanges(t *testing.T) {
 	checkError("10.0.0.1/32,")
 	checkError("10.0.0.1/32, ")
 	checkError("10.0.0.1")
+	checkError("2001:db8::1")
+	checkError("2001:db8::1/129")
+	checkError("2001:db8::1/128,*")
+	checkError("2001:db8::1/128,")
+	checkError("2001:db8::1/128, ")
 
 	checkOK := func(v string) netsets.IPNet {
 		annotations := make(map[string]string)
@@ -74,7 +79,15 @@ func TestGetLoadBalancerSourceRanges(t *testing.T) {
 	if len(cidrs) != 1 {
 		t.Errorf("Expected exactly one CIDR: %v", cidrs.StringSlice())
 	}
+	cidrs = checkOK("2001:db8::1/128")
+	if len(cidrs) != 1 {
+		t.Errorf("Expected exactly one CIDR: %v", cidrs.StringSlice())
+	}
 	cidrs = checkOK("192.168.0.1/32,192.168.0.1/32")
+	if len(cidrs) != 1 {
+		t.Errorf("Expected exactly one CIDR (after de-dup): %v", cidrs.StringSlice())
+	}
+	cidrs = checkOK("2001:db8::1/128,2001:db8::1/128")
 	if len(cidrs) != 1 {
 		t.Errorf("Expected exactly one CIDR (after de-dup): %v", cidrs.StringSlice())
 	}
@@ -82,7 +95,15 @@ func TestGetLoadBalancerSourceRanges(t *testing.T) {
 	if len(cidrs) != 2 {
 		t.Errorf("Expected two CIDRs: %v", cidrs.StringSlice())
 	}
+	cidrs = checkOK("2001:db8::1/128,2001:db8::2/128")
+	if len(cidrs) != 2 {
+		t.Errorf("Expected two CIDRs: %v", cidrs.StringSlice())
+	}
 	cidrs = checkOK("  192.168.0.1/32 , 192.168.0.2/32   ")
+	if len(cidrs) != 2 {
+		t.Errorf("Expected two CIDRs: %v", cidrs.StringSlice())
+	}
+	cidrs = checkOK("2001:db8::1/128 , 2001:db8::2/128   ")
 	if len(cidrs) != 2 {
 		t.Errorf("Expected two CIDRs: %v", cidrs.StringSlice())
 	}
@@ -129,9 +150,17 @@ func TestAllowAll(t *testing.T) {
 	checkAllowAll(false, "10.0.0.1/32", "10.0.0.2/32")
 	checkAllowAll(false, "10.0.0.1/32", "10.0.0.1/32")
 
+	/*checkAllowAll(false, "2001:db8::1/128")
+	checkAllowAll(false, "2001:db8::1/128", "2001:db8::2/128")
+	checkAllowAll(false, "2001:db8::1/128", "2001:db8::1/128")*/
+
 	checkAllowAll(true, "0.0.0.0/0")
 	checkAllowAll(true, "192.168.0.0/0")
 	checkAllowAll(true, "192.168.0.1/32", "0.0.0.0/0")
+
+	//checkAllowAll(true, "2001:ac1:1/128")
+	/*checkAllowAll(true, "2001:ac1::1/128", "2001:ac1::2/128")
+	checkAllowAll(true, "2001:ac1::1/128", "2001:ac1::1/128")*/
 }
 
 func TestRequestsOnlyLocalTraffic(t *testing.T) {

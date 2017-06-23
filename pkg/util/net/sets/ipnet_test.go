@@ -117,6 +117,23 @@ func TestNewIPSet(t *testing.T) {
 	}
 }
 
+func TestIPv6NewIPSet(t *testing.T) {
+	s, err := ParseIPNets("2001:db1::/32", "2001:db2::/32", "2001:db3::/32")
+	if err != nil {
+		t.Errorf("error parsing IPNets: %v", err)
+	}
+	if len(s) != 3 {
+		t.Errorf("Expected len=3: %d", len(s))
+	}
+	a := parseIPNet("2001:db1::/32")
+	b := parseIPNet("2001:db2::/32")
+	c := parseIPNet("2001:db3::/32")
+
+	if !s.Has(a) || !s.Has(b) || !s.Has(c) {
+		t.Errorf("Unexpected contents: %#v", s)
+	}
+}
+
 func TestIPNetSetDifference(t *testing.T) {
 	l, err := ParseIPNets("1.0.0.0/8", "2.0.0.0/8", "3.0.0.0/8")
 	if err != nil {
@@ -142,6 +159,31 @@ func TestIPNetSetDifference(t *testing.T) {
 	}
 }
 
+func TestIPv6IPNetSetDifference(t *testing.T) {
+	l, err := ParseIPNets("2001:db1::/32", "2001:db2::/32", "2001:db3::/32")
+	if err != nil {
+		t.Errorf("error parsing IPNets: %v", err)
+	}
+	r, err := ParseIPNets("2001:db1::/32", "2001:db2::/32", "2001:db4::/32", "2001:db5::/32")
+	if err != nil {
+		t.Errorf("error parsing IPNets: %v", err)
+	}
+	c := l.Difference(r)
+	d := r.Difference(l)
+	if len(c) != 1 {
+		t.Errorf("Expected len=1: %d", len(c))
+	}
+	if !c.Has(parseIPNet("2001:db3::/32")) {
+		t.Errorf("Unexpected contents: %#v", c)
+	}
+	if len(d) != 2 {
+		t.Errorf("Expected len=2: %d", len(d))
+	}
+	if !d.Has(parseIPNet("2001:db4::/32")) || !d.Has(parseIPNet("2001:db5::/32")) {
+		t.Errorf("Unexpected contents: %#v", d)
+	}
+}
+
 func TestIPNetSetList(t *testing.T) {
 	s, err := ParseIPNets("3.0.0.0/8", "1.0.0.0/8", "2.0.0.0/8")
 	if err != nil {
@@ -150,6 +192,18 @@ func TestIPNetSetList(t *testing.T) {
 	l := s.StringSlice()
 	sort.Strings(l)
 	if !reflect.DeepEqual(l, []string{"1.0.0.0/8", "2.0.0.0/8", "3.0.0.0/8"}) {
+		t.Errorf("List gave unexpected result: %#v", l)
+	}
+}
+
+func TestIPv6IPNetSetList(t *testing.T) {
+	s, err := ParseIPNets("2001:db9::/32", "2001:db8::/32", "2001:db7::/32")
+	if err != nil {
+		t.Errorf("error parsing IPNets: %v", err)
+	}
+	l := s.StringSlice()
+	sort.Strings(l)
+	if !reflect.DeepEqual(l, []string{"2001:db7::/32", "2001:db8::/32", "2001:db9::/32"}) {
 		t.Errorf("List gave unexpected result: %#v", l)
 	}
 }
