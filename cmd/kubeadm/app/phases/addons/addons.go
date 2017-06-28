@@ -36,9 +36,16 @@ import (
 
 // CreateEssentialAddons creates the kube-proxy and kube-dns addons
 func CreateEssentialAddons(cfg *kubeadmapi.MasterConfiguration, client *clientset.Clientset) error {
+	// Generate the API server endpoint
+	masterEndpoint := kubeadmutil.GenerateMasterEndpoint(cfg.API.Protocol, cfg.API.AdvertiseAddress, cfg.API.BindPort)
+	if masterEndpoint == "" {
+		err := fmt.Errorf("Error when parsing --apiserver-advertise-address: %s", cfg.API.AdvertiseAddress)
+		return err
+	}
+
 	proxyConfigMapBytes, err := kubeadmutil.ParseTemplate(KubeProxyConfigMap, struct{ MasterEndpoint string }{
 		// Fetch this value from the kubeconfig file
-		MasterEndpoint: fmt.Sprintf("https://%s:%d", cfg.API.AdvertiseAddress, cfg.API.BindPort),
+		MasterEndpoint: masterEndpoint,
 	})
 	if err != nil {
 		return fmt.Errorf("error when parsing kube-proxy configmap template: %v", err)

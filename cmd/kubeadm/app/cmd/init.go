@@ -21,7 +21,6 @@ import (
 	"io"
 	"io/ioutil"
 	"path"
-	"strconv"
 	"text/template"
 
 	"github.com/renstrom/dedent"
@@ -60,7 +59,7 @@ var (
 		You can now join any number of machines by running the following on each node
 		as root:
 
-		  kubeadm join --token {{.Token}} {{.MasterIP}}:{{.MasterPort}}
+		  kubeadm join --token {{.Token}} {{.MasterEndpoint}}
 
 		`)))
 )
@@ -203,7 +202,11 @@ func (i *Init) Run(out io.Writer) error {
 	// TODO this is not great, but there is only one address we can use here
 	// so we'll pick the first one, there is much of chance to have an empty
 	// slice by the time this gets called
-	masterEndpoint := fmt.Sprintf("https://%s:%d", i.cfg.API.AdvertiseAddress, i.cfg.API.BindPort)
+	masterEndpoint := kubeadmutil.GenerateMasterEndpoint(i.cfg.API.Protocol, i.cfg.API.AdvertiseAddress, i.cfg.API.BindPort)
+	if masterEndpoint == "" {
+		err = fmt.Errorf("Error when parsing --apiserver-advertise-address: %s", i.cfg.API.AdvertiseAddress)
+		return err
+	}
 	err = kubeconfigphase.CreateInitKubeConfigFiles(masterEndpoint, i.cfg.CertificatesDir, kubeadmapi.GlobalEnvParams.KubernetesDir)
 	if err != nil {
 		return err
@@ -267,8 +270,7 @@ func (i *Init) Run(out io.Writer) error {
 		"KubeConfigPath": path.Join(kubeadmapi.GlobalEnvParams.KubernetesDir, kubeadmconstants.AdminKubeConfigFileName),
 		"KubeConfigName": kubeadmconstants.AdminKubeConfigFileName,
 		"Token":          i.cfg.Token,
-		"MasterIP":       i.cfg.API.AdvertiseAddress,
-		"MasterPort":     strconv.Itoa(int(i.cfg.API.BindPort)),
+		"MasterEndpoint": masterEndpoint,
 	}
 
 	return initDoneTempl.Execute(out, ctx)

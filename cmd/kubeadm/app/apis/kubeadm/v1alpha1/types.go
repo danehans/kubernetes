@@ -51,6 +51,8 @@ type MasterConfiguration struct {
 }
 
 type API struct {
+	// Protocol sets the protocol for connecting to the API server.
+	Protocol string `json:"protocol"`
 	// AdvertiseAddress sets the address for the API server to advertise.
 	AdvertiseAddress string `json:"advertiseAddress"`
 	// BindPort sets the secure port for the API Server to bind to

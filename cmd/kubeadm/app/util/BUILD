@@ -11,6 +11,7 @@ load(
 go_library(
     name = "go_default_library",
     srcs = [
+        "endpoint.go",
         "error.go",
         "template.go",
         "version.go",
@@ -22,6 +23,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "endpoint_test.go",
         "error_test.go",
         "template_test.go",
         "version_test.go",
