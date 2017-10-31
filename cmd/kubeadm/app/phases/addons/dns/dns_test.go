@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
 	core "k8s.io/client-go/testing"
@@ -121,3 +122,30 @@ func TestCompileManifests(t *testing.T) {
 		}
 	}
 }
+
+func TestGetDNSIP(t *testing.T) {
+	tests := []struct {
+		name      string
+		svcIP string
+		expectIP string
+		expectErr bool
+	}{
+		{
+			"valid IPv4 service address",
+			"10.10.10.10",
+			"10.10.10.100",
+			false,
+		},
+	}
+	for _, tc := range tests {
+		client := clientsetfake.NewSimpleClientset()
+		k8ssvc, err := client.CoreV1().Services(metav1.NamespaceDefault).Update()
+		if err != nil {
+			t.Errorf("couldn't fetch information about the kubernetes service: %v", err)
+		}
+		dnsIP, err := getDNSIP(client)
+		if tc.createErr != nil {
+			client.PrependReactor("create", "serviceaccounts", func(action core.Action) (bool, runtime.Object, error) {
+				return true, nil, tc.createErr
+			})
+		}
